@@ -1,0 +1,1195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>库存盘点与资产计算</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'ui-sans-serif', 'sans-serif'],
+          },
+          colors: {
+            ink: '#10232a',
+            mint: '#daf3ea',
+            emerald: '#0d8f62',
+            ocean: '#0f6773',
+            sun: '#f5c451'
+          },
+          boxShadow: {
+            soft: '0 16px 40px -18px rgba(5, 42, 51, 0.35)',
+          },
+          keyframes: {
+            rise: {
+              '0%': { opacity: '0', transform: 'translateY(14px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' }
+            },
+            pulseDot: {
+              '0%, 100%': { opacity: '0.2' },
+              '50%': { opacity: '1' }
+            }
+          },
+          animation: {
+            rise: 'rise .45s ease-out forwards',
+            pulseDot: 'pulseDot 1s ease-in-out infinite'
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+    body {
+      background:
+        radial-gradient(1000px 540px at 95% -10%, #f6e7bc 0%, rgba(246, 231, 188, 0) 55%),
+        radial-gradient(860px 560px at -10% 0%, #daf3ea 0%, rgba(218, 243, 234, 0) 52%),
+        linear-gradient(160deg, #f7fbfa 0%, #eef6f5 55%, #ecf4fb 100%);
+    }
+  </style>
+</head>
+<body class="min-h-screen text-ink">
+  <main class="mx-auto w-full max-w-6xl px-4 py-8 md:py-12">
+    <section class="animate-rise rounded-3xl border border-white/70 bg-white/80 p-6 shadow-soft backdrop-blur md:p-8">
+      <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p class="inline-flex rounded-full bg-mint px-3 py-1 text-xs font-semibold tracking-wide text-ocean">本地离线计算 · 无需后端</p>
+          <h1 class="mt-3 text-2xl font-extrabold leading-tight md:text-4xl">库存盘点与总资产计算</h1>
+          <p class="mt-2 text-sm text-slate-600 md:text-base">上传盘点表后自动解析、匹配价格主数据并即时输出库存资产明细。</p>
+        </div>
+        <div id="statusBadge" class="inline-flex items-center gap-2 self-start rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 md:self-auto">
+          <span id="statusDot" class="h-2 w-2 rounded-full bg-slate-400"></span>
+          <span id="statusText">等待上传</span>
+        </div>
+      </div>
+
+      <div id="dropZone" class="mt-6 cursor-pointer rounded-2xl border-2 border-dashed border-ocean/30 bg-slate-50/70 p-8 text-center transition hover:border-ocean/60 hover:bg-white md:p-12">
+        <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" class="hidden" />
+        <div class="mx-auto mb-4 h-12 w-12 rounded-2xl bg-ocean/10 p-3 text-ocean">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-full w-full">
+            <path d="M12 16V4"></path>
+            <path d="m7 9 5-5 5 5"></path>
+            <rect x="3" y="16" width="18" height="4" rx="2"></rect>
+          </svg>
+        </div>
+        <h2 class="text-lg font-bold md:text-xl">请上传盘点表 (支持 CSV/Excel)</h2>
+        <p class="mt-2 text-sm text-slate-600">拖拽文件到这里，或点击选择文件。上传成功后将自动计算。</p>
+        <p id="fileMeta" class="mt-4 text-xs text-slate-500"></p>
+      </div>
+
+      <div id="loadingBox" class="mt-4 hidden items-center gap-3 rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-700">
+        <span class="inline-flex items-center gap-1">
+          <span class="h-2 w-2 rounded-full bg-ocean animate-pulseDot"></span>
+          <span class="h-2 w-2 rounded-full bg-ocean animate-pulseDot" style="animation-delay:.2s"></span>
+          <span class="h-2 w-2 rounded-full bg-ocean animate-pulseDot" style="animation-delay:.4s"></span>
+        </span>
+        <span id="loadingText">正在解析文件并计算资产...</span>
+      </div>
+
+      <div id="errorBox" class="mt-4 hidden rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"></div>
+    </section>
+
+    <section id="resultSection" class="mt-6 hidden animate-rise rounded-3xl border border-white/70 bg-white/85 p-5 shadow-soft backdrop-blur md:p-7">
+      <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div class="rounded-2xl bg-slate-50 px-4 py-3">
+            <p class="text-xs text-slate-500">门店数量</p>
+            <p id="storeCount" class="text-xl font-bold">0</p>
+          </div>
+          <div class="rounded-2xl bg-slate-50 px-4 py-3">
+            <p class="text-xs text-slate-500">有效明细行</p>
+            <p id="rowCount" class="text-xl font-bold">0</p>
+          </div>
+          <div class="rounded-2xl bg-emerald/10 px-4 py-3">
+            <p class="text-xs text-emerald">总体库存总资产</p>
+            <p id="totalAmount" class="text-xl font-extrabold text-emerald">¥0.00</p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="exportCsvBtn" class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-black">导出明细 CSV</button>
+          <button id="exportXlsxBtn" class="rounded-xl bg-ocean px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-800">导出结果 Excel</button>
+        </div>
+      </div>
+
+      <div id="warningBox" class="mt-4 hidden rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p class="text-sm font-semibold text-amber-800">以下记录未完全匹配（已保留在结果中，金额可能为空）</p>
+        <ul id="warningList" class="mt-2 max-h-40 list-disc space-y-1 overflow-auto pl-5 text-sm text-amber-700"></ul>
+      </div>
+
+      <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+        <div class="max-h-[460px] overflow-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
+              <tr>
+                <th class="px-3 py-3">门店</th>
+                <th class="px-3 py-3">产品名称</th>
+                <th class="px-3 py-3 text-right">剩余数量</th>
+                <th class="px-3 py-3">单位</th>
+                <th class="px-3 py-3 text-right">计算所用单价</th>
+                <th class="px-3 py-3 text-right">该项库存总价</th>
+              </tr>
+            </thead>
+            <tbody id="resultTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const PRICE_DATA = [
+  {
+    "product": "真程运嘉（原味）",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "真程运嘉（黑胡椒）",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "真程运嘉（脆骨藤椒味）",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "真程运嘉（蒜香味）",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "真程运嘉（孜然味）",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "真程运嘉（黑鸭）",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "兴威肉枣肠（黑胡椒）",
+    "spec": "3.75kg*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "兴威肉枣肠（甜肠）",
+    "spec": "3.75kg*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "蟹黄卤肉肠",
+    "spec": "2.5kg*4",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "台湾小枣肠",
+    "spec": "1*25斤",
+    "smallUnit": "斤",
+    "smallPrice": 13.4,
+    "largeUnit": "件",
+    "largePrice": 335.0
+  },
+  {
+    "product": "香辣味(漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "香辣味（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "黑椒肠（卤肉肠）",
+    "spec": "3.6kg*4袋",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "原味（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "蒜香（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "孜然（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "辣条味（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "熏肉味（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "排骨香肠（那氏）",
+    "spec": "1*30斤",
+    "smallUnit": "斤",
+    "smallPrice": 5.8333,
+    "largeUnit": "件",
+    "largePrice": 175.0
+  },
+  {
+    "product": "台湾风味肉枣肠（那氏）",
+    "spec": "1*25斤",
+    "smallUnit": "斤",
+    "smallPrice": 13.4,
+    "largeUnit": "件",
+    "largePrice": 335.0
+  },
+  {
+    "product": "风干“原味风干肠”（东风）",
+    "spec": "1*17根*5包",
+    "smallUnit": "包",
+    "smallPrice": 93.0,
+    "largeUnit": "件",
+    "largePrice": 465.0
+  },
+  {
+    "product": "（那氏）玉米肠",
+    "spec": "1*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "玉米味（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "黑胡椒（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "黑鸭（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "藤椒脆骨（漳州）",
+    "spec": "180G*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "手工腊肠（中式香肠）（腊肠）",
+    "spec": "1*20包",
+    "smallUnit": "包",
+    "smallPrice": 10.0,
+    "largeUnit": "件",
+    "largePrice": 200.0
+  },
+  {
+    "product": "五香香肠(绿贴标)/风干大（腊肠）",
+    "spec": "1*5根*20包",
+    "smallUnit": "包",
+    "smallPrice": 10.0,
+    "largeUnit": "件",
+    "largePrice": 200.0
+  },
+  {
+    "product": "鱼籽味（天清）",
+    "spec": "1*4包*14根",
+    "smallUnit": "包",
+    "smallPrice": 77.5,
+    "largeUnit": "件",
+    "largePrice": 310.0
+  },
+  {
+    "product": "牛肉味（漳州）",
+    "spec": "1*20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 77.5,
+    "largeUnit": "件",
+    "largePrice": 310.0
+  },
+  {
+    "product": "花瓣甜肠（猪肉）",
+    "spec": "1*4包*5斤",
+    "smallUnit": "包",
+    "smallPrice": 116.25,
+    "largeUnit": "件",
+    "largePrice": 465.0
+  },
+  {
+    "product": "花瓣甜肠（天清）",
+    "spec": "1*4包*5斤",
+    "smallUnit": "包",
+    "smallPrice": 116.25,
+    "largeUnit": "件",
+    "largePrice": 465.0
+  },
+  {
+    "product": "花瓣甜肠（那氏）",
+    "spec": "1*3包*10斤",
+    "smallUnit": "包",
+    "smallPrice": 155.0,
+    "largeUnit": "件",
+    "largePrice": 465.0
+  },
+  {
+    "product": "香酥肉卷（天清）",
+    "spec": "1*4包*12根",
+    "smallUnit": "包",
+    "smallPrice": 57.5,
+    "largeUnit": "件",
+    "largePrice": 230.0
+  },
+  {
+    "product": "原味风干肠",
+    "spec": "1*5包",
+    "smallUnit": "包",
+    "smallPrice": 93.0,
+    "largeUnit": "件",
+    "largePrice": 465.0
+  },
+  {
+    "product": "墨鱼肠",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "烤肠胡椒",
+    "spec": "1*4包",
+    "smallUnit": "包",
+    "smallPrice": 90.0,
+    "largeUnit": "件",
+    "largePrice": 360.0
+  },
+  {
+    "product": "烤肠原味",
+    "spec": "1*4包",
+    "smallUnit": "包",
+    "smallPrice": 90.0,
+    "largeUnit": "件",
+    "largePrice": 360.0
+  },
+  {
+    "product": "霸道原味",
+    "spec": "1*4包",
+    "smallUnit": "包",
+    "smallPrice": 90.0,
+    "largeUnit": "件",
+    "largePrice": 360.0
+  },
+  {
+    "product": "霸道黑胡椒",
+    "spec": "1*4包",
+    "smallUnit": "包",
+    "smallPrice": 90.0,
+    "largeUnit": "件",
+    "largePrice": 360.0
+  },
+  {
+    "product": "大盘肠",
+    "spec": "1*2包",
+    "smallUnit": "包",
+    "smallPrice": 143.0,
+    "largeUnit": "件",
+    "largePrice": 286.0
+  },
+  {
+    "product": "墨鱼",
+    "spec": "20根*4包",
+    "smallUnit": "包",
+    "smallPrice": 102.5,
+    "largeUnit": "件",
+    "largePrice": 410.0
+  },
+  {
+    "product": "五香香肠(绿贴标)/风干大",
+    "spec": "1*5根*20包",
+    "smallUnit": "包",
+    "smallPrice": 10.0,
+    "largeUnit": "件",
+    "largePrice": 200.0
+  },
+  {
+    "product": "塞维红肠",
+    "spec": "1*10对",
+    "smallUnit": "对",
+    "smallPrice": 7.0,
+    "largeUnit": "件",
+    "largePrice": 70.0
+  },
+  {
+    "product": "手工腊肠（中式香肠）",
+    "spec": "1*20包",
+    "smallUnit": "包",
+    "smallPrice": 10.0,
+    "largeUnit": "件",
+    "largePrice": 200.0
+  },
+  {
+    "product": "板栗甜（栗子肉)",
+    "spec": "1箱/件",
+    "smallUnit": null,
+    "smallPrice": null,
+    "largeUnit": "件",
+    "largePrice": 176.0
+  },
+  {
+    "product": "绿豆栗子饼（40克）",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.66,
+    "largeUnit": "件",
+    "largePrice": 165.0
+  },
+  {
+    "product": "玫瑰",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.66,
+    "largeUnit": "件",
+    "largePrice": 165.0
+  },
+  {
+    "product": "苏子",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.66,
+    "largeUnit": "件",
+    "largePrice": 165.0
+  },
+  {
+    "product": "椒盐饼",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": null,
+    "largeUnit": "件",
+    "largePrice": null
+  },
+  {
+    "product": "绿豆",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.66,
+    "largeUnit": "件",
+    "largePrice": 165.0
+  },
+  {
+    "product": "红豆",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.66,
+    "largeUnit": "件",
+    "largePrice": 165.0
+  },
+  {
+    "product": "椰香",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.66,
+    "largeUnit": "件",
+    "largePrice": 165.0
+  },
+  {
+    "product": "花生",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": null,
+    "largeUnit": "件",
+    "largePrice": null
+  },
+  {
+    "product": "金丝枣泥",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.672,
+    "largeUnit": "件",
+    "largePrice": 168.0
+  },
+  {
+    "product": "黑芝麻",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.704,
+    "largeUnit": "件",
+    "largePrice": 176.0
+  },
+  {
+    "product": "五仁",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.704,
+    "largeUnit": "件",
+    "largePrice": 176.0
+  },
+  {
+    "product": "板栗甜",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.704,
+    "largeUnit": "件",
+    "largePrice": 176.0
+  },
+  {
+    "product": "板栗咸",
+    "spec": "250个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.716,
+    "largeUnit": "件",
+    "largePrice": 179.0
+  },
+  {
+    "product": "牛舌(经典椒盐)",
+    "spec": "260个/箱",
+    "smallUnit": "个",
+    "smallPrice": 0.730769,
+    "largeUnit": "件",
+    "largePrice": 190.0
+  }
+];
+
+    const PRODUCT_ALIAS_MAP = new Map([
+      ['墨鱼肠', '墨鱼'],
+      ['五香香肠(绿贴标)/风干大（腊肠）', '五香香肠(绿贴标)/风干大'],
+      ['手工腊肠（中式香肠）（腊肠）', '手工腊肠（中式香肠）'],
+      ['板栗甜（栗子肉）', '板栗甜（栗子肉)']
+    ].map(([from, to]) => [normalizeName(from), normalizeName(to)]));
+
+    const SMALL_UNITS = new Set(['包', '斤', '袋', '盒', '瓶', '支', '个', '根', '桶', '对']);
+    const LARGE_UNITS = new Set(['箱', '件', '提', '筐', '套', '打', '托']);
+
+    const dom = {
+      dropZone: document.getElementById('dropZone'),
+      fileInput: document.getElementById('fileInput'),
+      fileMeta: document.getElementById('fileMeta'),
+      loadingBox: document.getElementById('loadingBox'),
+      loadingText: document.getElementById('loadingText'),
+      statusBadge: document.getElementById('statusBadge'),
+      statusDot: document.getElementById('statusDot'),
+      statusText: document.getElementById('statusText'),
+      errorBox: document.getElementById('errorBox'),
+      resultSection: document.getElementById('resultSection'),
+      storeCount: document.getElementById('storeCount'),
+      rowCount: document.getElementById('rowCount'),
+      totalAmount: document.getElementById('totalAmount'),
+      warningBox: document.getElementById('warningBox'),
+      warningList: document.getElementById('warningList'),
+      tableBody: document.getElementById('resultTableBody'),
+      exportCsvBtn: document.getElementById('exportCsvBtn'),
+      exportXlsxBtn: document.getElementById('exportXlsxBtn')
+    };
+
+    let latestResult = null;
+
+    const priceIndex = buildPriceIndex(PRICE_DATA);
+
+    bindEvents();
+
+    function bindEvents() {
+      dom.dropZone.addEventListener('click', () => dom.fileInput.click());
+      dom.fileInput.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (file) processFile(file);
+      });
+
+      dom.dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dom.dropZone.classList.add('border-ocean');
+      });
+
+      dom.dropZone.addEventListener('dragleave', () => {
+        dom.dropZone.classList.remove('border-ocean');
+      });
+
+      dom.dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dom.dropZone.classList.remove('border-ocean');
+        const file = e.dataTransfer?.files?.[0];
+        if (file) processFile(file);
+      });
+
+      dom.exportCsvBtn.addEventListener('click', exportDetailCsv);
+      dom.exportXlsxBtn.addEventListener('click', exportWorkbook);
+    }
+
+    async function processFile(file) {
+      setStatus('loading', '解析中');
+      showError('');
+      toggleLoading(true, '正在解析文件并自动计算资产...');
+      dom.fileMeta.textContent = `当前文件: ${file.name}（${formatSize(file.size)}）`;
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+        const inventoryRows = extractInventoryRows(workbook, file.name);
+        if (!inventoryRows.length) {
+          throw new Error('未识别到有效库存记录。请检查表头是否包含“商品名称/产品名称、数量、单位”。');
+        }
+
+        latestResult = calculateAsset(inventoryRows);
+        renderResult(latestResult);
+
+        setStatus('success', '计算完成');
+      } catch (err) {
+        console.error(err);
+        setStatus('error', '解析失败');
+        showError(err.message || '处理文件时发生未知错误');
+        dom.resultSection.classList.add('hidden');
+      } finally {
+        toggleLoading(false);
+      }
+    }
+
+    function extractInventoryRows(workbook, filename) {
+      const fallbackStore = normalizeText(filename.replace(/\.[^/.]+$/, '')) || '默认门店';
+      const all = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const ws = workbook.Sheets[sheetName];
+        const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (!aoa.length) continue;
+
+        const multi = parseMultiColumnsSheet(aoa, sheetName, fallbackStore);
+        if (multi.length) {
+          all.push(...multi);
+          continue;
+        }
+
+        const standard = parseStandardSheet(aoa, sheetName, fallbackStore);
+        all.push(...standard);
+      }
+
+      return all;
+    }
+
+    function parseMultiColumnsSheet(aoa, sheetName, fallbackStore) {
+      const headerRowIndex = aoa.findIndex((row) => {
+        const cells = row.map(normalizeText);
+        return cells.includes('商品名称') && cells.filter((c) => c === '数量').length >= 1 && cells.filter((c) => c === '单位').length >= 1;
+      });
+
+      if (headerRowIndex === -1) return [];
+
+      const header = aoa[headerRowIndex].map(normalizeText);
+      const productIdx = header.findIndex((v) => v === '商品名称' || v === '产品名称');
+      const qtyIdx = [];
+      const unitIdx = [];
+      header.forEach((cell, idx) => {
+        if (cell === '数量') qtyIdx.push(idx);
+        if (cell === '单位') unitIdx.push(idx);
+      });
+      if (productIdx === -1 || !qtyIdx.length || !unitIdx.length) return [];
+
+      const store = extractStoreName(aoa, fallbackStore);
+      const rows = [];
+      const pairCount = Math.min(qtyIdx.length, unitIdx.length);
+
+      for (let r = headerRowIndex + 1; r < aoa.length; r += 1) {
+        const row = aoa[r] || [];
+        const product = normalizeText(row[productIdx]);
+        if (!product || product === '商品名称' || /合计|汇总/.test(product)) continue;
+
+        for (let i = 0; i < pairCount; i += 1) {
+          const rawQty = row[qtyIdx[i]];
+          const qty = toNumber(rawQty);
+
+          rows.push({
+            门店: store,
+            产品名称: product,
+            剩余数量: qty,
+            原始数量: normalizeText(rawQty),
+            单位: normalizeText(row[unitIdx[i]]),
+            来源工作表: sheetName,
+            来源行号: r + 1
+          });
+        }
+      }
+
+      return rows;
+    }
+
+    function parseStandardSheet(aoa, sheetName, fallbackStore) {
+      const productAliases = ['产品名称', '商品名称', '产品', '品名'];
+      const qtyAliases = ['剩余数量', '库存数量', '数量', '结余数量', '剩余库存'];
+      const unitAliases = ['库存单位', '单位', '计量单位'];
+      const storeAliases = ['门店名称', '门店', '店铺', '店名'];
+
+      let headerRowIndex = -1;
+      let header = [];
+
+      for (let i = 0; i < Math.min(aoa.length, 20); i += 1) {
+        const row = (aoa[i] || []).map(normalizeText);
+        if (!row.length) continue;
+        if (hasAny(row, productAliases) && hasAny(row, qtyAliases) && hasAny(row, unitAliases)) {
+          headerRowIndex = i;
+          header = row;
+          break;
+        }
+      }
+
+      if (headerRowIndex === -1) return [];
+
+      const productIdx = findAliasIndex(header, productAliases);
+      const qtyIdx = findAliasIndex(header, qtyAliases);
+      const unitIdx = findAliasIndex(header, unitAliases);
+      const storeIdx = findAliasIndex(header, storeAliases);
+      if ([productIdx, qtyIdx, unitIdx].some((idx) => idx === -1)) return [];
+
+      const storeFallback = extractStoreName(aoa, fallbackStore);
+      const rows = [];
+
+      for (let r = headerRowIndex + 1; r < aoa.length; r += 1) {
+        const row = aoa[r] || [];
+        const product = normalizeText(row[productIdx]);
+        if (!product) continue;
+
+        const rawQty = row[qtyIdx];
+        const qty = toNumber(rawQty);
+
+        rows.push({
+          门店: normalizeText(storeIdx >= 0 ? row[storeIdx] : '') || storeFallback,
+          产品名称: product,
+          剩余数量: qty,
+          原始数量: normalizeText(rawQty),
+          单位: normalizeText(row[unitIdx]),
+          来源工作表: sheetName,
+          来源行号: r + 1
+        });
+      }
+
+      return rows;
+    }
+
+    function calculateAsset(inventoryRows) {
+      const detailRows = [];
+      const issues = [];
+
+      for (const row of inventoryRows) {
+        if (!Number.isFinite(row.剩余数量)) {
+          detailRows.push({
+            门店: row.门店,
+            产品名称: row.产品名称,
+            剩余数量: null,
+            原始数量: row.原始数量 || '',
+            单位: row.单位,
+            计算所用单价: null,
+            该项库存总价: null,
+            来源工作表: row.来源工作表 || '',
+            来源行号: row.来源行号 ?? ''
+          });
+          issues.push(`数量无法解析: ${row.产品名称}，原始数量=${row.原始数量 || '(空)'}`);
+          continue;
+        }
+
+        const resolved = resolvePrice(row.产品名称);
+        if (!resolved) {
+          detailRows.push({
+            门店: row.门店,
+            产品名称: row.产品名称,
+            剩余数量: row.剩余数量,
+            原始数量: row.原始数量 || '',
+            单位: row.单位,
+            计算所用单价: null,
+            该项库存总价: null,
+            来源工作表: row.来源工作表 || '',
+            来源行号: row.来源行号 ?? ''
+          });
+          issues.push(`未匹配主数据: ${row.产品名称}`);
+          continue;
+        }
+
+        const picked = pickUnitPrice(row.单位, resolved);
+        const unitPrice = picked.price;
+        const total = unitPrice == null ? null : safeMul(row.剩余数量, unitPrice);
+
+        detailRows.push({
+          门店: row.门店,
+          产品名称: row.产品名称,
+          剩余数量: row.剩余数量,
+          原始数量: row.原始数量 || '',
+          单位: row.单位,
+          计算所用单价: unitPrice,
+          该项库存总价: total,
+          来源工作表: row.来源工作表 || '',
+          来源行号: row.来源行号 ?? ''
+        });
+
+        if (picked.issue) {
+          issues.push(`${row.产品名称}(${row.单位 || '空单位'}): ${picked.issue}`);
+        }
+      }
+
+      const storeSummary = calcStoreSummary(detailRows);
+      const totalAmount = storeSummary.reduce((sum, item) => sum + item.门店库存总资产, 0);
+
+      return {
+        detailRows,
+        storeSummary,
+        totalSummary: [{ 总体库存总资产: round2(totalAmount) }],
+        issues: uniqueStrings(issues)
+      };
+    }
+
+    function calcStoreSummary(detailRows) {
+      const map = new Map();
+      for (const row of detailRows) {
+        if (!Number.isFinite(row.该项库存总价)) continue;
+        const prev = map.get(row.门店) || 0;
+        map.set(row.门店, prev + row.该项库存总价);
+      }
+
+      return Array.from(map.entries())
+        .map(([门店, total]) => ({ 门店, 门店库存总资产: round2(total) }))
+        .sort((a, b) => a.门店.localeCompare(b.门店, 'zh'));
+    }
+
+    function resolvePrice(productName) {
+      const normalized = normalizeName(productName);
+      const aliasTarget = PRODUCT_ALIAS_MAP.get(normalized) || normalized;
+      return priceIndex.get(aliasTarget) || null;
+    }
+
+    function pickUnitPrice(unitRaw, priceRow) {
+      const unit = normalizeText(unitRaw);
+      const smallUnit = normalizeText(priceRow.smallUnit);
+      const largeUnit = normalizeText(priceRow.largeUnit);
+
+      if (unit && smallUnit && unit === smallUnit) {
+        return Number.isFinite(priceRow.smallPrice)
+          ? { price: priceRow.smallPrice, issue: null }
+          : { price: null, issue: '匹配到小单位但缺少小单位价格' };
+      }
+
+      if (unit && largeUnit && unit === largeUnit) {
+        return Number.isFinite(priceRow.largePrice)
+          ? { price: priceRow.largePrice, issue: null }
+          : { price: null, issue: '匹配到大单位但缺少大单位价格' };
+      }
+
+      if (SMALL_UNITS.has(unit)) {
+        return Number.isFinite(priceRow.smallPrice)
+          ? { price: priceRow.smallPrice, issue: null }
+          : { price: null, issue: '识别为小单位，但主数据无小单位价格' };
+      }
+
+      if (LARGE_UNITS.has(unit)) {
+        return Number.isFinite(priceRow.largePrice)
+          ? { price: priceRow.largePrice, issue: null }
+          : { price: null, issue: '识别为大单位，但主数据无大单位价格' };
+      }
+
+      return { price: null, issue: '无法识别单位类型' };
+    }
+
+    function renderResult(result) {
+      dom.resultSection.classList.remove('hidden');
+
+      const storeSet = new Set(result.detailRows.map((r) => r.门店));
+      dom.storeCount.textContent = String(storeSet.size);
+      dom.rowCount.textContent = String(result.detailRows.length);
+      dom.totalAmount.textContent = formatCurrency(result.totalSummary[0]?.总体库存总资产 || 0);
+
+      renderTable(result.detailRows);
+      renderWarnings(result.issues);
+    }
+
+    function renderTable(rows) {
+      dom.tableBody.innerHTML = '';
+      const frag = document.createDocumentFragment();
+
+      rows.forEach((row) => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-50/70';
+        tr.innerHTML = `
+          <td class="px-3 py-2">${escapeHtml(row.门店 || '')}</td>
+          <td class="px-3 py-2">${escapeHtml(row.产品名称 || '')}</td>
+          <td class="px-3 py-2 text-right font-medium">${formatNumber(row.剩余数量)}</td>
+          <td class="px-3 py-2">${escapeHtml(row.单位 || '')}</td>
+          <td class="px-3 py-2 text-right">${Number.isFinite(row.计算所用单价) ? formatNumber(row.计算所用单价, 6) : '-'}</td>
+          <td class="px-3 py-2 text-right font-semibold">${Number.isFinite(row.该项库存总价) ? formatCurrency(row.该项库存总价) : '-'}</td>
+        `;
+        frag.appendChild(tr);
+      });
+
+      dom.tableBody.appendChild(frag);
+    }
+
+    function renderWarnings(issues) {
+      if (!issues.length) {
+        dom.warningBox.classList.add('hidden');
+        dom.warningList.innerHTML = '';
+        return;
+      }
+
+      dom.warningBox.classList.remove('hidden');
+      dom.warningList.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      issues.forEach((item) => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        frag.appendChild(li);
+      });
+      dom.warningList.appendChild(frag);
+    }
+
+    function exportDetailCsv() {
+      if (!latestResult?.detailRows?.length) return;
+      const ws = XLSX.utils.json_to_sheet(latestResult.detailRows);
+      const csv = XLSX.utils.sheet_to_csv(ws);
+      downloadBlob('\uFEFF' + csv, makeFilename('库存估值明细', 'csv'), 'text/csv;charset=utf-8;');
+    }
+
+    function exportWorkbook() {
+      if (!latestResult) return;
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(latestResult.detailRows), '明细');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(latestResult.storeSummary), '门店汇总');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(latestResult.totalSummary), '总体汇总');
+
+      if (latestResult.issues.length) {
+        const issueRows = latestResult.issues.map((msg) => ({ 异常信息: msg }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(issueRows), '异常记录');
+      }
+
+      XLSX.writeFile(wb, makeFilename('库存估值结果', 'xlsx'));
+    }
+
+    function buildPriceIndex(rows) {
+      const idx = new Map();
+      rows.forEach((item) => {
+        idx.set(normalizeName(item.product), {
+          ...item,
+          smallPrice: toNumber(item.smallPrice),
+          largePrice: toNumber(item.largePrice)
+        });
+      });
+      return idx;
+    }
+
+    function setStatus(type, text) {
+      const style = {
+        idle: ['bg-slate-100', 'text-slate-600', 'bg-slate-400'],
+        loading: ['bg-blue-50', 'text-blue-700', 'bg-blue-500'],
+        success: ['bg-emerald-50', 'text-emerald-700', 'bg-emerald-500'],
+        error: ['bg-rose-50', 'text-rose-700', 'bg-rose-500']
+      }[type] || ['bg-slate-100', 'text-slate-600', 'bg-slate-400'];
+
+      dom.statusBadge.className = `inline-flex items-center gap-2 self-start rounded-full px-3 py-1.5 text-xs font-semibold md:self-auto ${style[0]} ${style[1]}`;
+      dom.statusDot.className = `h-2 w-2 rounded-full ${style[2]}`;
+      dom.statusText.textContent = text;
+    }
+
+    function toggleLoading(show, text = '') {
+      dom.loadingBox.classList.toggle('hidden', !show);
+      dom.loadingBox.classList.toggle('flex', show);
+      if (text) dom.loadingText.textContent = text;
+    }
+
+    function showError(msg) {
+      const show = Boolean(msg);
+      dom.errorBox.classList.toggle('hidden', !show);
+      dom.errorBox.textContent = msg;
+    }
+
+    function extractStoreName(aoa, fallback) {
+      const maxRows = Math.min(aoa.length, 6);
+      const regex = /(.*?店)/;
+      for (let i = 0; i < maxRows; i += 1) {
+        const row = aoa[i] || [];
+        for (let j = 0; j < Math.min(row.length, 4); j += 1) {
+          const text = normalizeText(row[j]);
+          const m = text.match(regex);
+          if (m && m[1]) return m[1];
+        }
+      }
+      return fallback;
+    }
+
+    function findAliasIndex(row, aliases) {
+      return row.findIndex((cell) => aliases.includes(cell));
+    }
+
+    function hasAny(row, aliases) {
+      return row.some((cell) => aliases.includes(cell));
+    }
+
+    function normalizeText(value) {
+      if (value == null) return '';
+      return String(value).replace(/　/g, ' ').trim();
+    }
+
+    function normalizeName(value) {
+      return normalizeText(value)
+        .replace(/[（]/g, '(')
+        .replace(/[）]/g, ')')
+        .replace(/\s+/g, '');
+    }
+
+    function toNumber(value) {
+      if (value == null || value === '') return 0;
+      if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+      const text = String(value).replace(/,/g, '').trim();
+      if (!text) return 0;
+      const compact = text.replace(/\s+/g, '');
+
+      // 业务规则: "大半箱"/"小半箱" 统一按 0.5 箱计算
+      if (compact.includes('大半箱') || compact.includes('小半箱')) return 0.5;
+
+      // 支持 "0.5箱" / "1件" / "2包" 等文本数量
+      const unitNumberMatch = compact.match(/^([+-]?\d+(?:\.\d+)?)(箱|件|包|斤|个|对|袋|盒|桶|根)?$/);
+      if (unitNumberMatch) return Number(unitNumberMatch[1]);
+
+      const num = Number(text);
+      return Number.isFinite(num) ? num : null;
+    }
+
+    function round2(n) {
+      return Math.round((n + Number.EPSILON) * 100) / 100;
+    }
+
+    function safeMul(a, b) {
+      return round2((a || 0) * (b || 0));
+    }
+
+    function formatNumber(n, maxFraction = 2) {
+      if (!Number.isFinite(n)) return '-';
+      return new Intl.NumberFormat('zh-CN', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: maxFraction
+      }).format(n);
+    }
+
+    function formatCurrency(n) {
+      if (!Number.isFinite(n)) return '-';
+      return new Intl.NumberFormat('zh-CN', {
+        style: 'currency',
+        currency: 'CNY',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(n);
+    }
+
+    function formatSize(size) {
+      if (!Number.isFinite(size)) return '0 B';
+      if (size < 1024) return `${size} B`;
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+      return `${(size / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function uniqueStrings(arr) {
+      return Array.from(new Set(arr)).sort((a, b) => a.localeCompare(b, 'zh'));
+    }
+
+    function makeFilename(prefix, ext) {
+      const d = new Date();
+      const pad = (x) => String(x).padStart(2, '0');
+      const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+      return `${prefix}_${stamp}.${ext}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function downloadBlob(content, filename, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body>
+</html>

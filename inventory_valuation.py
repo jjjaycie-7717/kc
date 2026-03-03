@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -36,6 +37,30 @@ def normalize_text(value: object) -> str:
     if pd.isna(value):
         return ""
     return str(value).replace("\u3000", " ").strip()
+
+
+def parse_quantity(value: object) -> float | None:
+    """解析数量，支持“大半箱/小半箱=0.5箱”等文本数量。"""
+    if pd.isna(value):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value) if pd.notna(value) else None
+
+    text = normalize_text(value).replace(",", "")
+    if not text:
+        return 0.0
+
+    compact = re.sub(r"\s+", "", text)
+    if "大半箱" in compact or "小半箱" in compact:
+        return 0.5
+
+    # 支持 "0.5箱" / "1件" / "2包" 这类写法
+    m = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)\s*(箱|件|包|斤|个|对|袋|盒|桶|根)?", compact)
+    if m:
+        return float(m.group(1))
+
+    parsed = pd.to_numeric(compact, errors="coerce")
+    return float(parsed) if pd.notna(parsed) else None
 
 
 def find_column(df: pd.DataFrame, candidates: Iterable[str], required: bool = True) -> str | None:
@@ -135,10 +160,12 @@ def prepare_inventory_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     df["门店"] = df["门店"].map(normalize_text)
     df["产品名称"] = df["产品名称"].map(normalize_text)
     df["单位"] = df["单位"].map(normalize_text)
-    df["剩余数量"] = pd.to_numeric(df["剩余数量"], errors="coerce")
+    df["原始数量"] = df["剩余数量"].map(normalize_text)
+    df["剩余数量"] = df["剩余数量"].map(parse_quantity)
     df["产品名称_清洗"] = df["产品名称"].map(normalize_text)
+    df["来源行号"] = df.index + 2
 
-    return df[["门店", "产品名称", "产品名称_清洗", "剩余数量", "单位"]]
+    return df[["门店", "产品名称", "产品名称_清洗", "原始数量", "剩余数量", "单位", "来源行号"]]
 
 
 def choose_unit_price(row: pd.Series) -> tuple[float | None, str]:
@@ -184,10 +211,10 @@ def build_result(price_df: pd.DataFrame, inventory_df: pd.DataFrame) -> tuple[pd
 
     invalid_qty_mask = merged["剩余数量"].isna()
     if invalid_qty_mask.any():
-        invalid_rows = merged.loc[invalid_qty_mask, ["门店", "产品名称", "剩余数量"]]
+        invalid_rows = merged.loc[invalid_qty_mask, ["门店", "产品名称", "原始数量"]]
         print("[警告] 以下记录剩余数量不是有效数字，将无法计算金额:")
         for _, row in invalid_rows.iterrows():
-            print(f"  - 门店={row['门店']}, 产品={row['产品名称']}, 数量={row['剩余数量']}")
+            print(f"  - 门店={row['门店']}, 产品={row['产品名称']}, 原始数量={row['原始数量']}")
 
     # 仅对价格和数量都有效的记录计算金额
     merged["该项库存总价"] = merged["剩余数量"] * merged["计算所用单价"]
@@ -222,15 +249,10 @@ def build_result(price_df: pd.DataFrame, inventory_df: pd.DataFrame) -> tuple[pd
                 f"小单位价格={row['小单位价格']}, 大单位价格={row['大单位价格']}"
             )
 
-    detail_df = merged[["门店", "产品名称", "剩余数量", "单位", "计算所用单价", "该项库存总价"]].copy()
-
-    # 若同门店+同产品重复出现，自动聚合
-    detail_df = (
-        detail_df.groupby(["门店", "产品名称", "单位", "计算所用单价"], dropna=False, as_index=False)[["剩余数量", "该项库存总价"]]
-        .sum(min_count=1)
-        [["门店", "产品名称", "剩余数量", "单位", "计算所用单价", "该项库存总价"]]
-        .sort_values(["门店", "产品名称", "单位"], na_position="last")
-    )
+    # 保留每一条输入记录，绝不聚合折叠
+    detail_df = merged[
+        ["来源行号", "门店", "产品名称", "原始数量", "剩余数量", "单位", "计算所用单价", "该项库存总价"]
+    ].copy().sort_values(["来源行号", "门店", "产品名称"], na_position="last")
 
     store_summary_df = (
         detail_df.groupby("门店", dropna=False, as_index=False)["该项库存总价"].sum(min_count=1).rename(columns={"该项库存总价": "门店库存总资产"})
@@ -241,7 +263,21 @@ def build_result(price_df: pd.DataFrame, inventory_df: pd.DataFrame) -> tuple[pd
 
     issue_df = merged.loc[
         unmatched_mask | invalid_qty_mask | unit_unrecognized_mask | missing_price_mask,
-        ["门店", "产品名称", "剩余数量", "单位", "小单位", "大单位", "小单位价格", "大单位价格", "计算所用单价", "该项库存总价", "计价依据"],
+        [
+            "来源行号",
+            "门店",
+            "产品名称",
+            "原始数量",
+            "剩余数量",
+            "单位",
+            "小单位",
+            "大单位",
+            "小单位价格",
+            "大单位价格",
+            "计算所用单价",
+            "该项库存总价",
+            "计价依据",
+        ],
     ].copy()
 
     return detail_df, store_summary_df, total_summary_df, issue_df
@@ -316,6 +352,9 @@ def main() -> None:
 
     detail_df, store_summary_df, total_summary_df, issue_df = build_result(price_df, inventory_df)
     export_result(detail_df, store_summary_df, total_summary_df, issue_df, output_path)
+
+    print(f"[核对] 输入库存行数: {len(inventory_df)}")
+    print(f"[核对] 输出明细行数: {len(detail_df)}")
 
     total_amount = total_summary_df.loc[0, "总体库存总资产"]
     print(f"[完成] 总体库存总资产: {total_amount:,.2f}" if pd.notna(total_amount) else "[完成] 总体库存总资产: NaN")
