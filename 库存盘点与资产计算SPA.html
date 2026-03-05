@@ -6,6 +6,7 @@
   <title>库存盘点与资产计算</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/decimal.js@10.4.3/decimal.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -82,6 +83,7 @@
         </div>
         <h2 class="text-lg font-bold md:text-xl">请上传盘点表 (支持 CSV/Excel)</h2>
         <p class="mt-2 text-sm text-slate-600">拖拽文件到这里，或点击选择文件。上传成功后将自动计算。</p>
+        <p class="mt-1 text-xs text-slate-500">当前仅识别工作表：肠、面食（熟食会自动跳过）。</p>
         <p id="fileMeta" class="mt-4 text-xs text-slate-500"></p>
       </div>
 
@@ -105,12 +107,20 @@
             <p id="storeCount" class="text-xl font-bold">0</p>
           </div>
           <div class="rounded-2xl bg-slate-50 px-4 py-3">
-            <p class="text-xs text-slate-500">有效明细行</p>
+            <p class="text-xs text-slate-500">展示行 / 总处理行</p>
             <p id="rowCount" class="text-xl font-bold">0</p>
           </div>
           <div class="rounded-2xl bg-emerald/10 px-4 py-3">
             <p class="text-xs text-emerald">总体库存总资产</p>
-            <p id="totalAmount" class="text-xl font-extrabold text-emerald">¥0.00</p>
+            <div class="mt-1 flex items-center gap-2">
+              <p id="totalAmount" class="text-xl font-extrabold text-emerald">¥0.00</p>
+              <button id="copyTotalAmountBtn" type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald/20 text-emerald transition hover:bg-emerald/30" title="复制总体库存总资产" aria-label="复制总体库存总资产">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+                  <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -126,12 +136,16 @@
       </div>
 
       <div class="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+        <div class="border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          表格仅展示剩余数量大于 0 的产品；红色行表示识别未成功（未匹配/单位识别失败/缺少单价）。
+        </div>
         <div class="max-h-[460px] overflow-auto">
           <table class="min-w-full divide-y divide-slate-200 text-sm">
             <thead class="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-600">
               <tr>
                 <th class="px-3 py-3">门店</th>
                 <th class="px-3 py-3">产品名称</th>
+                <th class="px-3 py-3">原始数量</th>
                 <th class="px-3 py-3 text-right">剩余数量</th>
                 <th class="px-3 py-3">单位</th>
                 <th class="px-3 py-3 text-right">计算所用单价</th>
@@ -143,6 +157,7 @@
         </div>
       </div>
     </section>
+
   </main>
 
   <script>
@@ -633,8 +648,35 @@
       ['墨鱼肠', '墨鱼'],
       ['五香香肠(绿贴标)/风干大（腊肠）', '五香香肠(绿贴标)/风干大'],
       ['手工腊肠（中式香肠）（腊肠）', '手工腊肠（中式香肠）'],
-      ['板栗甜（栗子肉）', '板栗甜（栗子肉)']
+      ['板栗甜（栗子肉）', '板栗甜（栗子肉)'],
+      ['板栗咸（栗子肉）', '板栗咸'],
+      ['霸道烤肠（原味）', '霸道原味'],
+      ['霸道烤肠（黑胡椒）', '霸道黑胡椒'],
+      ['霸道肠原味', '霸道原味'],
+      ['牛舌', '牛舌(经典椒盐)'],
+      ['牛舌饼', '牛舌(经典椒盐)'],
+      ['咸板栗', '板栗咸'],
+      ['椰奶', '椰香']
     ].map(([from, to]) => [normalizeName(from), normalizeName(to)]));
+
+    // 图片规则：以下产品仅按大单位(件/箱)计价，不使用小单位
+    const LARGE_ONLY_PRODUCTS = new Set([
+      '绿豆栗子饼（40克）',
+      '玫瑰',
+      '苏子',
+      '椒盐饼',
+      '绿豆',
+      '红豆',
+      '椰香',
+      '花生',
+      '金丝枣泥',
+      '黑芝麻',
+      '五仁',
+      '板栗甜（栗子肉)',
+      '板栗咸',
+      '板栗咸(栗子肉)',
+      '牛舌(经典椒盐)'
+    ].map(normalizeName));
 
     const SMALL_UNITS = new Set(['包', '斤', '袋', '盒', '瓶', '支', '个', '根', '桶', '对']);
     const LARGE_UNITS = new Set(['箱', '件', '提', '筐', '套', '打', '托']);
@@ -653,6 +695,7 @@
       storeCount: document.getElementById('storeCount'),
       rowCount: document.getElementById('rowCount'),
       totalAmount: document.getElementById('totalAmount'),
+      copyTotalAmountBtn: document.getElementById('copyTotalAmountBtn'),
       warningBox: document.getElementById('warningBox'),
       warningList: document.getElementById('warningList'),
       tableBody: document.getElementById('resultTableBody'),
@@ -661,6 +704,7 @@
     };
 
     let latestResult = null;
+    let currentUploadBaseName = '盘点表';
 
     const priceIndex = buildPriceIndex(PRICE_DATA);
 
@@ -671,6 +715,7 @@
       dom.fileInput.addEventListener('change', (e) => {
         const file = e.target.files?.[0];
         if (file) processFile(file);
+        e.target.value = '';
       });
 
       dom.dropZone.addEventListener('dragover', (e) => {
@@ -691,13 +736,22 @@
 
       dom.exportCsvBtn.addEventListener('click', exportDetailCsv);
       dom.exportXlsxBtn.addEventListener('click', exportWorkbook);
+      dom.copyTotalAmountBtn.addEventListener('click', copyTotalAmount);
     }
 
     async function processFile(file) {
+      // 重新上传时，先清空上一份结果，确保当前页面只保留最新文件计算结果
+      latestResult = null;
+      dom.tableBody.innerHTML = '';
+      dom.warningList.innerHTML = '';
+      dom.warningBox.classList.add('hidden');
+      dom.resultSection.classList.add('hidden');
+
       setStatus('loading', '解析中');
       showError('');
       toggleLoading(true, '正在解析文件并自动计算资产...');
       dom.fileMeta.textContent = `当前文件: ${file.name}（${formatSize(file.size)}）`;
+      currentUploadBaseName = normalizeText(file.name.replace(/\.[^/.]+$/, '')) || '盘点表';
 
       try {
         const arrayBuffer = await file.arrayBuffer();
@@ -709,6 +763,9 @@
         }
 
         latestResult = calculateAsset(inventoryRows);
+        if (!latestResult.integrity.rowCountMatched) {
+          throw new Error(`行数校验失败：输入行数=${latestResult.integrity.inputRows}，输出行数=${latestResult.integrity.outputRows}`);
+        }
         renderResult(latestResult);
 
         setStatus('success', '计算完成');
@@ -727,6 +784,8 @@
       const all = [];
 
       for (const sheetName of workbook.SheetNames) {
+        if (!shouldProcessSheet(sheetName)) continue;
+
         const ws = workbook.Sheets[sheetName];
         const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
         if (!aoa.length) continue;
@@ -742,6 +801,11 @@
       }
 
       return all;
+    }
+
+    function shouldProcessSheet(sheetName) {
+      const name = normalizeText(sheetName).replace(/\s+/g, '');
+      return name === '肠' || name === '面食';
     }
 
     function parseMultiColumnsSheet(aoa, sheetName, fallbackStore) {
@@ -773,7 +837,7 @@
 
         for (let i = 0; i < pairCount; i += 1) {
           const rawQty = row[qtyIdx[i]];
-          const qty = toNumber(rawQty);
+          const qty = toQuantity(rawQty);
 
           rows.push({
             门店: store,
@@ -826,7 +890,7 @@
         if (!product) continue;
 
         const rawQty = row[qtyIdx];
-        const qty = toNumber(rawQty);
+        const qty = toQuantity(rawQty);
 
         rows.push({
           门店: normalizeText(storeIdx >= 0 ? row[storeIdx] : '') || storeFallback,
@@ -848,6 +912,7 @@
 
       for (const row of inventoryRows) {
         if (!Number.isFinite(row.剩余数量)) {
+          const isEmptyRaw = normalizeText(row.原始数量) === '';
           detailRows.push({
             门店: row.门店,
             产品名称: row.产品名称,
@@ -857,9 +922,13 @@
             计算所用单价: null,
             该项库存总价: null,
             来源工作表: row.来源工作表 || '',
-            来源行号: row.来源行号 ?? ''
+            来源行号: row.来源行号 ?? '',
+            识别成功: false,
+            异常原因: isEmptyRaw ? '数量为空' : '数量无法解析'
           });
-          issues.push(`数量无法解析: ${row.产品名称}，原始数量=${row.原始数量 || '(空)'}`);
+          if (!isEmptyRaw) {
+            issues.push(`数量无法解析: ${row.产品名称}，原始数量=${row.原始数量 || '(空)'}`);
+          }
           continue;
         }
 
@@ -874,7 +943,9 @@
             计算所用单价: null,
             该项库存总价: null,
             来源工作表: row.来源工作表 || '',
-            来源行号: row.来源行号 ?? ''
+            来源行号: row.来源行号 ?? '',
+            识别成功: false,
+            异常原因: '未匹配主数据'
           });
           issues.push(`未匹配主数据: ${row.产品名称}`);
           continue;
@@ -893,7 +964,9 @@
           计算所用单价: unitPrice,
           该项库存总价: total,
           来源工作表: row.来源工作表 || '',
-          来源行号: row.来源行号 ?? ''
+          来源行号: row.来源行号 ?? '',
+          识别成功: !picked.issue,
+          异常原因: picked.issue || ''
         });
 
         if (picked.issue) {
@@ -908,7 +981,12 @@
         detailRows,
         storeSummary,
         totalSummary: [{ 总体库存总资产: round2(totalAmount) }],
-        issues: uniqueStrings(issues)
+        issues: uniqueStrings(issues),
+        integrity: {
+          inputRows: inventoryRows.length,
+          outputRows: detailRows.length,
+          rowCountMatched: inventoryRows.length === detailRows.length
+        }
       };
     }
 
@@ -966,12 +1044,13 @@
     function renderResult(result) {
       dom.resultSection.classList.remove('hidden');
 
-      const storeSet = new Set(result.detailRows.map((r) => r.门店));
+      const displayRows = getDisplayRows(result.detailRows);
+      const storeSet = new Set(displayRows.map((r) => r.门店));
       dom.storeCount.textContent = String(storeSet.size);
-      dom.rowCount.textContent = String(result.detailRows.length);
+      dom.rowCount.textContent = `${displayRows.length} / ${result.detailRows.length}`;
       dom.totalAmount.textContent = formatCurrency(result.totalSummary[0]?.总体库存总资产 || 0);
 
-      renderTable(result.detailRows);
+      renderTable(displayRows);
       renderWarnings(result.issues);
     }
 
@@ -981,10 +1060,14 @@
 
       rows.forEach((row) => {
         const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-50/70';
+        const failed = row.识别成功 === false;
+        tr.className = failed
+          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100/80'
+          : 'hover:bg-slate-50/70';
         tr.innerHTML = `
           <td class="px-3 py-2">${escapeHtml(row.门店 || '')}</td>
           <td class="px-3 py-2">${escapeHtml(row.产品名称 || '')}</td>
+          <td class="px-3 py-2">${escapeHtml(row.原始数量 || '')}</td>
           <td class="px-3 py-2 text-right font-medium">${formatNumber(row.剩余数量)}</td>
           <td class="px-3 py-2">${escapeHtml(row.单位 || '')}</td>
           <td class="px-3 py-2 text-right">${Number.isFinite(row.计算所用单价) ? formatNumber(row.计算所用单价, 6) : '-'}</td>
@@ -994,6 +1077,10 @@
       });
 
       dom.tableBody.appendChild(frag);
+    }
+
+    function getDisplayRows(rows) {
+      return rows.filter((row) => Number.isFinite(row.剩余数量) && row.剩余数量 > 0);
     }
 
     function renderWarnings(issues) {
@@ -1018,7 +1105,7 @@
       if (!latestResult?.detailRows?.length) return;
       const ws = XLSX.utils.json_to_sheet(latestResult.detailRows);
       const csv = XLSX.utils.sheet_to_csv(ws);
-      downloadBlob('\uFEFF' + csv, makeFilename('库存估值明细', 'csv'), 'text/csv;charset=utf-8;');
+      downloadBlob('\uFEFF' + csv, `${currentUploadBaseName}_库存估值明细.csv`, 'text/csv;charset=utf-8;');
     }
 
     function exportWorkbook() {
@@ -1034,17 +1121,45 @@
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(issueRows), '异常记录');
       }
 
-      XLSX.writeFile(wb, makeFilename('库存估值结果', 'xlsx'));
+      XLSX.writeFile(wb, `${currentUploadBaseName}_库存估值结果.xlsx`);
+    }
+
+    async function copyTotalAmount() {
+      if (!latestResult?.totalSummary?.length) return;
+      const text = dom.totalAmount.textContent || '';
+      if (!text) return;
+
+      try {
+        await copyTextToClipboard(text);
+        const oldTitle = dom.copyTotalAmountBtn.title;
+        dom.copyTotalAmountBtn.title = '已复制';
+        setTimeout(() => {
+          dom.copyTotalAmountBtn.title = oldTitle;
+        }, 1200);
+      } catch (err) {
+        console.error(err);
+      }
     }
 
     function buildPriceIndex(rows) {
       const idx = new Map();
       rows.forEach((item) => {
-        idx.set(normalizeName(item.product), {
+        const key = normalizeName(item.product);
+        const normalizedItem = {
           ...item,
           smallPrice: toNumber(item.smallPrice),
-          largePrice: toNumber(item.largePrice)
-        });
+          largePrice: toNumber(item.largePrice),
+          smallUnit: normalizeText(item.smallUnit),
+          largeUnit: normalizeText(item.largeUnit) || '件'
+        };
+
+        if (LARGE_ONLY_PRODUCTS.has(key)) {
+          normalizedItem.smallUnit = '';
+          normalizedItem.smallPrice = null;
+          normalizedItem.largeUnit = '件';
+        }
+
+        idx.set(key, normalizedItem);
       });
       return idx;
     }
@@ -1108,11 +1223,11 @@
         .replace(/\s+/g, '');
     }
 
-    function toNumber(value) {
-      if (value == null || value === '') return 0;
+    function toQuantity(value) {
+      if (value == null || value === '') return null;
       if (typeof value === 'number') return Number.isFinite(value) ? value : null;
       const text = String(value).replace(/,/g, '').trim();
-      if (!text) return 0;
+      if (!text) return null;
       const compact = text.replace(/\s+/g, '');
 
       // 业务规则: "大半箱"/"小半箱" 统一按 0.5 箱计算
@@ -1122,6 +1237,15 @@
       const unitNumberMatch = compact.match(/^([+-]?\d+(?:\.\d+)?)(箱|件|包|斤|个|对|袋|盒|桶|根)?$/);
       if (unitNumberMatch) return Number(unitNumberMatch[1]);
 
+      const num = Number(compact);
+      return Number.isFinite(num) ? num : null;
+    }
+
+    function toNumber(value) {
+      if (value == null || value === '') return null;
+      if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+      const text = String(value).replace(/,/g, '').trim();
+      if (!text) return null;
       const num = Number(text);
       return Number.isFinite(num) ? num : null;
     }
@@ -1130,8 +1254,16 @@
       return Math.round((n + Number.EPSILON) * 100) / 100;
     }
 
+    function round3(n) {
+      return Math.round((n + Number.EPSILON) * 1000) / 1000;
+    }
+
     function safeMul(a, b) {
-      return round2((a || 0) * (b || 0));
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+      if (window.Decimal) {
+        return Number(new Decimal(a).times(new Decimal(b)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toString());
+      }
+      return round2(a * b);
     }
 
     function formatNumber(n, maxFraction = 2) {
@@ -1163,13 +1295,6 @@
       return Array.from(new Set(arr)).sort((a, b) => a.localeCompare(b, 'zh'));
     }
 
-    function makeFilename(prefix, ext) {
-      const d = new Date();
-      const pad = (x) => String(x).padStart(2, '0');
-      const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-      return `${prefix}_${stamp}.${ext}`;
-    }
-
     function escapeHtml(value) {
       return String(value)
         .replace(/&/g, '&amp;')
@@ -1189,6 +1314,22 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    }
+
+    async function copyTextToClipboard(text) {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
     }
   </script>
 </body>

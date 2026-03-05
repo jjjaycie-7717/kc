@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from pathlib import Path
 from typing import Iterable
 
@@ -31,6 +32,22 @@ INVENTORY_COLUMN_ALIASES = {
 SMALL_UNIT_ALIASES = {"包", "斤", "袋", "盒", "瓶", "支", "个", "根", "桶"}
 LARGE_UNIT_ALIASES = {"箱", "件", "提", "筐", "套", "打", "托"}
 
+# 产品别名映射（键和值均为规范化后的产品名）
+PRODUCT_ALIAS_MAP = {
+    "墨鱼肠": "墨鱼",
+    "五香香肠(绿贴标)/风干大(腊肠)": "五香香肠(绿贴标)/风干大",
+    "手工腊肠(中式香肠)(腊肠)": "手工腊肠(中式香肠)",
+    "板栗甜(栗子肉)": "板栗甜(栗子肉)",
+    "板栗咸(栗子肉)": "板栗咸",
+    "霸道烤肠(原味)": "霸道原味",
+    "霸道烤肠(黑胡椒)": "霸道黑胡椒",
+    "霸道肠原味": "霸道原味",
+    "牛舌": "牛舌(经典椒盐)",
+    "牛舌饼": "牛舌(经典椒盐)",
+    "咸板栗": "板栗咸",
+    "椰奶": "椰香",
+}
+
 
 def normalize_text(value: object) -> str:
     """统一文本，去除空白和全角空格。"""
@@ -39,16 +56,32 @@ def normalize_text(value: object) -> str:
     return str(value).replace("\u3000", " ").strip()
 
 
+def normalize_product_key(value: object) -> str:
+    """产品名规范化：统一括号、去空白。"""
+    return (
+        normalize_text(value)
+        .replace("（", "(")
+        .replace("）", ")")
+        .replace(" ", "")
+    )
+
+
+def resolve_product_alias(value: object) -> str:
+    """将产品名映射到主数据主键（含别名处理）。"""
+    key = normalize_product_key(value)
+    return PRODUCT_ALIAS_MAP.get(key, key)
+
+
 def parse_quantity(value: object) -> float | None:
     """解析数量，支持“大半箱/小半箱=0.5箱”等文本数量。"""
     if pd.isna(value):
-        return 0.0
+        return None
     if isinstance(value, (int, float)):
         return float(value) if pd.notna(value) else None
 
     text = normalize_text(value).replace(",", "")
     if not text:
-        return 0.0
+        return None
 
     compact = re.sub(r"\s+", "", text)
     if "大半箱" in compact or "小半箱" in compact:
@@ -71,6 +104,21 @@ def find_column(df: pd.DataFrame, candidates: Iterable[str], required: bool = Tr
     if required:
         raise ValueError(f"未找到必需字段，候选字段为: {list(candidates)}")
     return None
+
+
+def calculate_row_total(qty: object, unit_price: object) -> float | None:
+    """高精度计算行金额，统一四舍五入到2位小数。"""
+    if pd.isna(qty) or pd.isna(unit_price):
+        return None
+
+    try:
+        qty_dec = Decimal(str(qty))
+        price_dec = Decimal(str(unit_price))
+        total = qty_dec * price_dec
+    except (InvalidOperation, ValueError):
+        return None
+
+    return float(total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def read_table(path: Path, csv_encoding: str = "utf-8-sig") -> pd.DataFrame:
@@ -124,7 +172,7 @@ def prepare_price_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     for col in ["小单位价格", "大单位价格"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df["产品名称_清洗"] = df["产品名称"].map(normalize_text)
+    df["产品名称_清洗"] = df["产品名称"].map(normalize_product_key)
 
     # 主键去重：同名产品取第一条并输出告警
     duplicated_mask = df["产品名称_清洗"].duplicated(keep="first")
@@ -162,7 +210,7 @@ def prepare_inventory_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     df["单位"] = df["单位"].map(normalize_text)
     df["原始数量"] = df["剩余数量"].map(normalize_text)
     df["剩余数量"] = df["剩余数量"].map(parse_quantity)
-    df["产品名称_清洗"] = df["产品名称"].map(normalize_text)
+    df["产品名称_清洗"] = df["产品名称"].map(resolve_product_alias)
     df["来源行号"] = df.index + 2
 
     return df[["门店", "产品名称", "产品名称_清洗", "原始数量", "剩余数量", "单位", "来源行号"]]
@@ -217,7 +265,10 @@ def build_result(price_df: pd.DataFrame, inventory_df: pd.DataFrame) -> tuple[pd
             print(f"  - 门店={row['门店']}, 产品={row['产品名称']}, 原始数量={row['原始数量']}")
 
     # 仅对价格和数量都有效的记录计算金额
-    merged["该项库存总价"] = merged["剩余数量"] * merged["计算所用单价"]
+    merged["该项库存总价"] = merged.apply(
+        lambda row: calculate_row_total(row.get("剩余数量"), row.get("计算所用单价")),
+        axis=1,
+    )
 
     unit_unrecognized_mask = (merged["计价依据"] == "无法识别单位") & (~unmatched_mask)
     if unit_unrecognized_mask.any():
@@ -253,6 +304,9 @@ def build_result(price_df: pd.DataFrame, inventory_df: pd.DataFrame) -> tuple[pd
     detail_df = merged[
         ["来源行号", "门店", "产品名称", "原始数量", "剩余数量", "单位", "计算所用单价", "该项库存总价"]
     ].copy().sort_values(["来源行号", "门店", "产品名称"], na_position="last")
+
+    if len(detail_df) != len(inventory_df):
+        raise RuntimeError(f"行数校验失败: 输入行数={len(inventory_df)}, 输出行数={len(detail_df)}")
 
     store_summary_df = (
         detail_df.groupby("门店", dropna=False, as_index=False)["该项库存总价"].sum(min_count=1).rename(columns={"该项库存总价": "门店库存总资产"})
