@@ -467,7 +467,7 @@
     "largePrice": 360.0
   },
   {
-    "product": "霸道原味",
+    "product": "霸道烤肠原味",
     "spec": "1*4包",
     "smallUnit": "包",
     "smallPrice": 90.0,
@@ -475,7 +475,7 @@
     "largePrice": 360.0
   },
   {
-    "product": "霸道黑胡椒",
+    "product": "霸道烤肠黑胡椒",
     "spec": "1*4包",
     "smallUnit": "包",
     "smallPrice": 90.0,
@@ -650,9 +650,11 @@
       ['手工腊肠（中式香肠）（腊肠）', '手工腊肠（中式香肠）'],
       ['板栗甜（栗子肉）', '板栗甜（栗子肉)'],
       ['板栗咸（栗子肉）', '板栗咸'],
-      ['霸道烤肠（原味）', '霸道原味'],
-      ['霸道烤肠（黑胡椒）', '霸道黑胡椒'],
-      ['霸道肠原味', '霸道原味'],
+      ['霸道原味', '霸道烤肠原味'],
+      ['霸道黑胡椒', '霸道烤肠黑胡椒'],
+      ['霸道烤肠（原味）', '霸道烤肠原味'],
+      ['霸道烤肠（黑胡椒）', '霸道烤肠黑胡椒'],
+      ['霸道肠原味', '霸道烤肠原味'],
       ['牛舌', '牛舌(经典椒盐)'],
       ['牛舌饼', '牛舌(经典椒盐)'],
       ['咸板栗', '板栗咸'],
@@ -813,24 +815,24 @@
         const cells = row.map(normalizeText);
         return cells.includes('商品名称') && cells.filter((c) => c === '数量').length >= 1 && cells.filter((c) => c === '单位').length >= 1;
       });
-
-      if (headerRowIndex === -1) return [];
-
-      const header = aoa[headerRowIndex].map(normalizeText);
-      const productIdx = header.findIndex((v) => v === '商品名称' || v === '产品名称');
+      const fallbackHeader = (aoa[0] || []).map(normalizeText);
+      const activeHeader = headerRowIndex >= 0 ? aoa[headerRowIndex].map(normalizeText) : fallbackHeader;
+      const productIdx = headerRowIndex >= 0 ? activeHeader.findIndex((v) => v === '商品名称' || v === '产品名称') : 0;
       const qtyIdx = [];
       const unitIdx = [];
-      header.forEach((cell, idx) => {
+      activeHeader.forEach((cell, idx) => {
         if (cell === '数量') qtyIdx.push(idx);
         if (cell === '单位') unitIdx.push(idx);
       });
-      if (productIdx === -1 || !qtyIdx.length || !unitIdx.length) return [];
+      const rowStartIndex = headerRowIndex >= 0 ? headerRowIndex + 1 : 1;
+      const store = headerRowIndex >= 0 ? extractStoreName(aoa, fallbackStore) : normalizeText(aoa[0]?.[0]) || extractStoreName(aoa, fallbackStore);
+      const hasFallbackMultiHeader = headerRowIndex === -1 && qtyIdx.length && unitIdx.length;
+      if ((!hasFallbackMultiHeader && productIdx === -1) || !qtyIdx.length || !unitIdx.length) return [];
 
-      const store = extractStoreName(aoa, fallbackStore);
       const rows = [];
       const pairCount = Math.min(qtyIdx.length, unitIdx.length);
 
-      for (let r = headerRowIndex + 1; r < aoa.length; r += 1) {
+      for (let r = rowStartIndex; r < aoa.length; r += 1) {
         const row = aoa[r] || [];
         const product = normalizeText(row[productIdx]);
         if (!product || product === '商品名称' || /合计|汇总/.test(product)) continue;
