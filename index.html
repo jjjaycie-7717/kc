@@ -697,6 +697,46 @@
     "smallPrice": 78.3333,
     "largeUnit": "件",
     "largePrice": 470.0
+  },
+  {
+    "product": "小兔子糕",
+    "spec": "1件/4盒/24个",
+    "smallUnit": "盒",
+    "smallPrice": 37.5,
+    "largeUnit": "件",
+    "largePrice": 150.0
+  },
+  {
+    "product": "白糖糕",
+    "spec": "1件/15盒/6个",
+    "smallUnit": "盒",
+    "smallPrice": 6.67,
+    "largeUnit": "件",
+    "largePrice": 100.0
+  },
+  {
+    "product": "青菜小笼包",
+    "spec": "1件/4包",
+    "smallUnit": "包",
+    "smallPrice": 57.5,
+    "largeUnit": "件",
+    "largePrice": 230.0
+  },
+  {
+    "product": "黑猪肉小笼包",
+    "spec": "1件/4包",
+    "smallUnit": "包",
+    "smallPrice": 57.5,
+    "largeUnit": "件",
+    "largePrice": 230.0
+  },
+  {
+    "product": "玉米",
+    "spec": "1件/40个",
+    "smallUnit": "个",
+    "smallPrice": 1.76,
+    "largeUnit": "件",
+    "largePrice": 70.4
   }
 ];
 
@@ -717,7 +757,12 @@
       ['牛舌', '牛舌(经典椒盐)'],
       ['牛舌饼', '牛舌(经典椒盐)'],
       ['咸板栗', '板栗咸'],
-      ['椰奶', '椰香']
+      ['椰奶', '椰香'],
+      ['小兔子', '小兔子糕'],
+      ['白糖方糕', '白糖糕'],
+      ['蔬菜小笼包', '青菜小笼包'],
+      ['玉米糕', '玉米'],
+      ['玉米棒', '玉米']
     ].map(([from, to]) => [normalizeName(from), normalizeName(to)]));
 
     // 图片规则：以下产品仅按大单位(件/箱)计价，不使用小单位
