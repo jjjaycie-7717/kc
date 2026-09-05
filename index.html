@@ -670,9 +670,9 @@
     "product": "猪头肉",
     "spec": "1件/20斤",
     "smallUnit": "斤",
-    "smallPrice": 11.25,
+    "smallPrice": 13.0,
     "largeUnit": "件",
-    "largePrice": 225.0
+    "largePrice": 260.0
   },
   {
     "product": "猪蹄",
@@ -737,6 +737,14 @@
     "smallPrice": 1.76,
     "largeUnit": "件",
     "largePrice": 70.4
+  },
+  {
+    "product": "玉米粗粮糕",
+    "spec": "1件/90个",
+    "smallUnit": "个",
+    "smallPrice": 1.1111,
+    "largeUnit": "件",
+    "largePrice": 100.0
   }
 ];
 
@@ -760,9 +768,11 @@
       ['椰奶', '椰香'],
       ['小兔子', '小兔子糕'],
       ['白糖方糕', '白糖糕'],
+      ['白玉糕', '白糖糕'],
       ['蔬菜小笼包', '青菜小笼包'],
       ['玉米糕', '玉米'],
-      ['玉米棒', '玉米']
+      ['玉米棒', '玉米'],
+      ['粗粮米糕', '玉米粗粮糕']
     ].map(([from, to]) => [normalizeName(from), normalizeName(to)]));
 
     // 图片规则：以下产品仅按大单位(件/箱)计价，不使用小单位
