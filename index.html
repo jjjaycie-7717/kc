@@ -745,6 +745,122 @@
     "smallPrice": 1.1111,
     "largeUnit": "件",
     "largePrice": 100.0
+  },
+  // 用户补充的卡通包价格主数据
+  {
+    "product": "卡通猪猪包",
+    "spec": "1件/200个",
+    "smallUnit": "个",
+    "smallPrice": 0.6,
+    "largeUnit": "件",
+    "largePrice": 120.0
+  },
+  {
+    "product": "卡通包小猪佩奇",
+    "spec": "1件/200个",
+    "smallUnit": "个",
+    "smallPrice": 0.6,
+    "largeUnit": "件",
+    "largePrice": 120.0
+  },
+  {
+    "product": "肠仔包",
+    "spec": "1件/120个",
+    "smallUnit": "个",
+    "smallPrice": 1.0,
+    "largeUnit": "件",
+    "largePrice": 120.0
+  },
+  // 黑猪肉系列统一为每件4袋、每袋20根
+  {
+    "product": "黑猪肉（黑胡椒）",
+    "spec": "1件/4袋/20根",
+    "smallUnit": "袋",
+    "smallPrice": 105.0,
+    "largeUnit": "件",
+    "largePrice": 420.0
+  },
+  {
+    "product": "黑猪肉（蒜香）",
+    "spec": "1件/4袋/20根",
+    "smallUnit": "袋",
+    "smallPrice": 105.0,
+    "largeUnit": "件",
+    "largePrice": 420.0
+  },
+  // 菜包子与小笼包使用相同规格和价格
+  {
+    "product": "菜包子",
+    "spec": "1件/4包",
+    "smallUnit": "包",
+    "smallPrice": 57.5,
+    "largeUnit": "件",
+    "largePrice": 230.0
+  },
+  // 截图补充的原料、辅料和卡通包价格
+  {
+    "product": "辣椒油",
+    "spec": "1桶",
+    "smallUnit": "桶",
+    "smallPrice": 80.0,
+    "largeUnit": "",
+    "largePrice": null
+  },
+  {
+    "product": "虾皮原料",
+    "spec": "1件/50斤",
+    "smallUnit": "斤",
+    "smallPrice": 7.5,
+    "largeUnit": "件",
+    "largePrice": 375.0
+  },
+  {
+    "product": "虾片袋",
+    "spec": "50个/捆",
+    "smallUnit": "",
+    "smallPrice": null,
+    "largeUnit": "件",
+    "largePrice": 18.0
+  },
+  {
+    "product": "虾片机",
+    "spec": "",
+    "smallUnit": "",
+    "smallPrice": null,
+    "largeUnit": "件",
+    "largePrice": null
+  },
+  {
+    "product": "烧椒酱小笼包",
+    "spec": "1件",
+    "smallUnit": "",
+    "smallPrice": null,
+    "largeUnit": "件",
+    "largePrice": 230.0
+  },
+  {
+    "product": "卡通包小蜜蜂",
+    "spec": "1件/200个",
+    "smallUnit": "个",
+    "smallPrice": 0.6,
+    "largeUnit": "件",
+    "largePrice": 120.0
+  },
+  {
+    "product": "卡通小象包",
+    "spec": "1件/200个",
+    "smallUnit": "个",
+    "smallPrice": 0.6,
+    "largeUnit": "件",
+    "largePrice": 120.0
+  },
+  {
+    "product": "卡通小黄人",
+    "spec": "1件/200个",
+    "smallUnit": "个",
+    "smallPrice": 0.6,
+    "largeUnit": "件",
+    "largePrice": 120.0
   }
 ];
 
@@ -772,7 +888,14 @@
       ['蔬菜小笼包', '青菜小笼包'],
       ['玉米糕', '玉米'],
       ['玉米棒', '玉米'],
-      ['粗粮米糕', '玉米粗粮糕']
+      ['粗粮米糕', '玉米粗粮糕'],
+      ['黑猪肉黑胡椒', '黑猪肉（黑胡椒）'],
+      ['黑猪肉蒜香', '黑猪肉（蒜香）'],
+      ['猪猪包', '卡通猪猪包'],
+      ['小猪佩奇', '卡通包小猪佩奇'],
+      ['小蜜蜂', '卡通包小蜜蜂'],
+      ['小象', '卡通小象包'],
+      ['小黄人', '卡通小黄人']
     ].map(([from, to]) => [normalizeName(from), normalizeName(to)]));
 
     // 图片规则：以下产品仅按大单位(件/箱)计价，不使用小单位
